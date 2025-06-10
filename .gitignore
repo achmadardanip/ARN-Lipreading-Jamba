@@ -1,0 +1,47 @@
+# Python bytecode dan file cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environments
+# Folder ini berisi semua library yang Anda install dan spesifik untuk mesin Anda
+venv/
+.venv/
+env/
+.env
+
+# File konfigurasi IDE dan editor
+.vscode/
+.idea/
+*.swp
+
+# File temporary dari Modal
+.modal.state
+
+# --- SPESIFIK UNTUK PROYEK INI ---
+
+# Dataset
+# Folder ini sangat besar dan tidak boleh dimasukkan ke dalam Git.
+# Tambahkan catatan di README.md tentang cara mendapatkan dataset.
+idev1/
+idev1_roi_80_116_175_211_npy_gray_pkl_jpeg/
+
+# Model Checkpoints & Output Training
+# File model (.pt) biasanya berukuran besar.
+# Sebaiknya disimpan di tempat lain seperti Google Drive atau Git LFS.
+*.pt
+*.pth
+
+# Hasil evaluasi dan file sementara
+*.csv
+outputs/
+inference_data/
+
+# Video yang digunakan untuk inferensi
+*.mp4
+
+# File yang Anda unggah selama proses debugging
+image_*.png
+Jamba.pdf
+recognizing indonesian words based on visual cues of lip movement using deep learning.pdf

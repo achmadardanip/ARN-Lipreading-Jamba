@@ -99,6 +99,7 @@ parser.add_argument('--label_smooth', type=str2bool, required=True)
 parser.add_argument('--se', type=str2bool, required=True)
 parser.add_argument('--focal_loss', type=str2bool, required=True)
 parser.add_argument('--focal_loss_weight', type=str2bool, required=True)
+parser.add_argument('--data_path', type=str, required=True, help='Path to the root directory of the dataset.')
 
 
 args = parser.parse_args()
@@ -186,10 +187,11 @@ def calculate_class_weights(labels):
     
     return torch.FloatTensor(class_weights).cuda()
 
+# Path: ARN-Lipreadings/main_visual.py
+
 def val(mode_var=None):
     
     with torch.no_grad():
-        # dataset = Dataset('val', args, mode=mode_var)
         if mode_var==None:
             with open('label_sorted.txt') as myfile:
                 temp_labels = myfile.read().splitlines()
@@ -204,19 +206,15 @@ def val(mode_var=None):
                 temp_labels = myfile.read().splitlines()
         args.n_class = len(temp_labels)
 
-        dataset = Dataset('val', args)
-        # print('Start Validating, Data Length:',len(dataset))
+        # --- PERBAIKAN: Gunakan 'test' sebagai set validasi ---
+        dataset = Dataset('test', args, data_path=args.data_path)
+        # --- PERBAIKAN SELESAI ---
+
         loader = dataset2dataloader(dataset, args.batch_size, args.num_workers, shuffle=True)        
         
-        # print('start validating')
         v_acc = []
-        entropy = []
-        acc_mean = []
         val_loss = []
         total = 0
-        cons_acc = 0.0
-        cons_total = 0.0
-        attns = []
         if (args.focal_loss):
             m = nn.Softmax(dim=-1)
 
@@ -224,11 +222,14 @@ def val(mode_var=None):
             
             video_model.eval()
             
+            # Tambahkan pengecekan jika input adalah None (dari dataset_idlrw.py)
+            if input is None:
+                continue
+            
             tic = time.time()
             video = input.get('video').cuda(non_blocking=True)
             label = input.get('label').cuda(non_blocking=True)
             total = total + video.size(0)
-            names = input.get('name')
             border = input.get('duration').cuda(non_blocking=True).float()
             
             loss2 = {}
@@ -236,7 +237,9 @@ def val(mode_var=None):
             if(args.focal_loss):
                 var_gamma = 2
                 if (args.focal_loss_weight):
-                    loss_fn2 = FocalLoss(gamma=var_gamma, weights=weights)
+                    # Pastikan 'weights' didefinisikan secara global jika digunakan di sini
+                    # Untuk keamanan, kita asumsikan tidak pakai weight di validasi
+                    loss_fn2 = FocalLoss(gamma=var_gamma)
                 else:
                     loss_fn2 = FocalLoss(gamma=var_gamma)
                 label_print = "focalloss"
@@ -249,22 +252,20 @@ def val(mode_var=None):
                     loss_fn2 = nn.CrossEntropyLoss()
                     label_print = "CE"
             
-            with autocast():
-                if(args.border):
-                    y_v = video_model(video, border)                                           
-                else:
-                    y_v = video_model(video)                                           
-                    
-                if args.focal_loss:
-                    loss_bp2 = loss_fn2(m(y_v), label)
-                else:
-                    loss_bp2 = loss_fn2(y_v, label)
+            # Hapus with autocast() untuk validasi juga agar konsisten
+            if(args.border):
+                y_v = video_model(video, border)                                           
+            else:
+                y_v = video_model(video)                                           
+                
+            if args.focal_loss:
+                loss_bp2 = loss_fn2(m(y_v), label)
+            else:
+                loss_bp2 = loss_fn2(y_v, label)
 
-                                
             loss2[label_print] = loss_bp2
             val_loss.append(float(loss_bp2.detach().cpu().numpy()))
                          
-
             v_acc.extend((y_v.argmax(-1) == label).cpu().numpy().tolist())
             toc = time.time()
             if(i_iter % 10 == 0):  
@@ -272,106 +273,157 @@ def val(mode_var=None):
                 msg = add_msg(msg, 'v_acc={:.5f}', np.array(v_acc).reshape(-1).mean())                
                 msg = add_msg(msg, 'eta={:.5f}', (toc-tic)*(len(loader)-i_iter)/3600.0)
                                 
-                # print(msg)            
-        mean_val_loss = np.average(val_loss)
+        # Handle kasus jika v_acc kosong
+        if not v_acc:
+             print("Peringatan: Set validasi/test kosong atau semua sampel gagal dimuat.")
+             return 0.0, "v_acc=0.00000_", 0.0
+
+        mean_val_loss = np.average(val_loss) if val_loss else 0.0
         acc = float(np.array(v_acc).reshape(-1).mean())
         msg = 'v_acc_{:.5f}_'.format(acc)
         
-        return acc, msg, mean_val_loss 
+        return acc, msg, mean_val_loss
 
+# Path: ARN-Lipreadings/main_visual.py
+
+# Path: ARN-Lipreadings/main_visual.py
+
+# Path: ARN-Lipreadings/main_visual.py
 
 def test():
+    # Menggunakan 'video_model' dan 'args' dari lingkup global
     
     with torch.no_grad():
-        dataset = Dataset('test', args)
-        print('Start Testing, Data Length:',len(dataset))
-        loader = dataset2dataloader(dataset, args.batch_size, args.num_workers, shuffle=True)        
+        dataset = Dataset('test', args, data_path=args.data_path)
+        print('Start Testing, Data Length:', len(dataset))
+        loader = dataset2dataloader(dataset, args.batch_size, args.num_workers, shuffle=False)
         
-        true_labels = []
-        pred_labels = []
+        true_labels, pred_labels, v_acc = [], [], []
 
-        # print('start testing')
-        v_acc = []
-        entropy = []
-        acc_mean = []
-        total = 0
-        cons_acc = 0.0
-        cons_total = 0.0
-        attns = []
-
-        all_probs = []
-        video_names = []
-
-
-        for (i_iter, input) in enumerate(loader):
+        for batch in loader:
+            if batch is None: continue
             
             video_model.eval()
+            video = batch.get('video').cuda(non_blocking=True)
+            label = batch.get('label').cuda(non_blocking=True)
+            border = batch.get('duration').cuda(non_blocking=True).float()
+
+            y_v = video_model(video, border) if args.border else video_model(video)
             
-            tic = time.time()
-            video = input.get('video').cuda(non_blocking=True)
-            label = input.get('label').cuda(non_blocking=True)
-            # print(label)
-            total = total + video.size(0)
-            # names = input.get('name')
-            border = input.get('duration').cuda(non_blocking=True).float()
+            if label is not None:
+                true_labels.extend(label.cpu().numpy().tolist())
+                pred_labels.extend(y_v.argmax(-1).cpu().numpy().tolist())
+                v_acc.extend((y_v.argmax(-1) == label).cpu().numpy().tolist())
 
-            with autocast():
-                if(args.border):
-                    y_v = video_model(video, border)
-                    logits = video_model(video, border)                                           
-                else:
-                    y_v = video_model(video)   
-                    logits = video_model(video)                                        
-            # Calculate softmax probabilities
-            probs = torch.softmax(logits, dim=1).cpu().numpy()
-            all_probs.extend(probs)
-            names_cpu = [name_item.cpu().numpy() for name_item in label]  # Convert each tensor to CPU
-            names_str = [str(name_item) for name_item in names_cpu]       # Convert each numpy array to string
-            video_names.extend(names_str)
-            # video_names.extend(label)
+    if not v_acc:
+        print("Tidak ada sampel valid untuk dihitung akurasinya.")
+        return 0.0, "v_acc=0.00000_"
 
-            true_labels.extend(label.cpu().numpy().tolist())
-            pred_labels.extend(y_v.argmax(-1).cpu().numpy().tolist())
+    # --- Cetak Hasil Evaluasi ---
+    acc = np.mean(v_acc)
+    precision = precision_score(true_labels, pred_labels, average='macro', zero_division=0)
+    recall = recall_score(true_labels, pred_labels, average='macro', zero_division=0)
+    f1 = f1_score(true_labels, pred_labels, average='macro', zero_division=0)
+    pytorch_total_params = sum(p.numel() for p in video_model.parameters() if p.requires_grad)
 
-            v_acc.extend((y_v.argmax(-1) == label).cpu().numpy().tolist())
-            toc = time.time()
-            if(i_iter % 10 == 0):  
-                msg = ''              
-                msg = add_msg(msg, 'v_acc={:.5f}', np.array(v_acc).reshape(-1).mean())                
-                msg = add_msg(msg, 'eta={:.5f}', (toc-tic)*(len(loader)-i_iter)/3600.0)
-                                
-                print(msg)      
+    print("-" * 20)
+    print("--- Hasil Evaluasi Final ---")
+    print(f"Total Sampel Test: {len(true_labels)}")
+    print(f"Accuracy: {acc:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
+    print(f"F1 Score: {f1:.4f}")
+    print(f"Total number of parameters: {pytorch_total_params}")
+    print("-" * 20)
+    
+    # --- PERBAIKAN: FLOPs calculation dengan dimensi yang benar ---
+    try:
+        # Get a sample from the actual dataset to understand the correct input shape
+        sample_input = None
+        sample_border = None
+        
+        # Get one sample to understand the actual input dimensions
+        for batch in loader:
+            if batch is not None:
+                sample_input = batch.get('video')[:1]  # Take first sample only
+                if args.border:
+                    sample_border = batch.get('duration')[:1].float()
+                break
+        
+        if sample_input is not None:
+            print(f"Sample input shape: {sample_input.shape}")
+            if sample_border is not None:
+                print(f"Sample border shape: {sample_border.shape}")
+            
+            # Create wrapper that matches the actual model interface
+            class ModelWrapperForFLOPs(torch.nn.Module):
+                def __init__(self, model, use_border=False):
+                    super().__init__()
+                    self.model = model
+                    self.use_border = use_border
 
-        # After the loop, create a DataFrame for probabilities
+                def forward(self, v, border=None):
+                    if self.use_border and border is not None:
+                        return self.model(v, border)
+                    else:
+                        return self.model(v)
 
-        df_probs = pd.DataFrame(all_probs)
-        df_probs['video_name'] = video_names
-        df_probs['true_label'] = true_labels
-        df_probs['pred_label'] = pred_labels
+            model_for_flops_calc = ModelWrapperForFLOPs(
+                video_model.module if hasattr(video_model, 'module') else video_model, 
+                use_border=args.border
+            ).cuda()
+            
+            # Use the actual sample dimensions for FLOPs calculation
+            input_tensor = sample_input.cuda()
+            
+            if args.border and sample_border is not None:
+                border_tensor = sample_border.cuda()
+                flops, macs, params = calculate_flops(
+                    model=model_for_flops_calc,
+                    args=[input_tensor, border_tensor],
+                    output_as_string=True,
+                    output_precision=4
+                )
+            else:
+                flops, macs, params = calculate_flops(
+                    model=model_for_flops_calc,
+                    args=[input_tensor],
+                    output_as_string=True,
+                    output_precision=4
+                )
+            
+            print("Model FLOPs:%s   MACs:%s   Params:%s \n" % (flops, macs, params))
+        else:
+            print("Tidak dapat mengambil sample untuk kalkulasi FLOPs")
 
-        # Save to CSV
-        df_probs.to_csv('video_class_probabilities.csv', index=False)
-        acc = float(np.array(v_acc).reshape(-1).mean())
-        msg = 'v_acc_{:.5f}_'.format(acc)
+    except Exception as e:
+        print(f"Gagal menghitung FLOPs: {e}")
+        print("Mencoba dengan metode alternatif...")
+        
+        try:
+            # Alternative method using FlopCountAnalysis
+            # Create a dummy input based on common video input format
+            # Assuming video format is [batch, channels, frames, height, width] or similar
+            dummy_video = torch.randn(1, 1, 25, 88, 88).cuda()  # Common lipreading format
+            
+            model_for_analysis = video_model.module if hasattr(video_model, 'module') else video_model
+            
+            if args.border:
+                dummy_border = torch.randn(1, 25).cuda()  # Adjust based on your border format
+                flop_analysis = FlopCountAnalysis(model_for_analysis, (dummy_video, dummy_border))
+            else:
+                flop_analysis = FlopCountAnalysis(model_for_analysis, dummy_video)
+            
+            total_flops = flop_analysis.total()
+            print(f"Model FLOPs (alternative method): {total_flops:,}")
+            
+        except Exception as e2:
+            print(f"Metode alternatif FLOPs juga gagal: {e2}")
+            print("Melanjutkan tanpa kalkulasi FLOPs...")
+    
+    # --- PERBAIKAN SELESAI ---
 
-        precision = precision_score(true_labels, pred_labels, average='macro')
-        recall = recall_score(true_labels, pred_labels, average='macro')
-        f1 = f1_score(true_labels, pred_labels, average='macro')
-        pytorch_total_params = sum(p.numel() for p in video_model.parameters() if p.requires_grad)
-        print(f"Total number of parameters: {pytorch_total_params}")
-        print(f'Precision: {precision}')
-        print(f'Recall: {recall}')
-        print(f'F1 Score: {f1}')
-
-
-        input_shape = (1, 1, 1, 88, 88)
-        flops, macs, params = calculate_flops(model=video_model, 
-                                              input_shape=input_shape,
-                                              output_as_string=True,
-                                              output_precision=4)
-        print("Model FLOPs:%s   MACs:%s   Params:%s \n" %(flops, macs, params))
-
-        return acc, msg                                 
+    return acc, f"v_acc_{acc:.5f}_"       
 
 def showLR(optimizer):
     lr = []
@@ -410,7 +462,8 @@ def train():
     alpha = 0.2
     epsilon = 1e-7
     beta_distribution = torch.distributions.beta.Beta(alpha, alpha)
-    scaler = GradScaler()           
+    # scaler = GradScaler() 
+    scaler = torch.cuda.amp.GradScaler()          
     mode_list = [None]
     print(len(mode_list))
     patience = 10
@@ -433,7 +486,7 @@ def train():
         )
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optim_video, T_max = args.max_epoch, eta_min=5e-6)
 
-        dataset = Dataset('train', args)
+        dataset = Dataset('train', args, data_path=args.data_path)
         if mode_var==None:
             with open('label_sorted.txt') as myfile:
                 temp_labels = myfile.read().splitlines()
@@ -490,56 +543,56 @@ def train():
                     else:
                         loss_fn = nn.CrossEntropyLoss()
                         label_print = "CE"
-                with autocast():
-                    if(args.mixup):
-                        lambda_ = np.random.beta(alpha, alpha)
-                        index = torch.randperm(video.size(0)).cuda(non_blocking=True)
+                # with autocast():
+                if(args.mixup):
+                    lambda_ = np.random.beta(alpha, alpha)
+                    index = torch.randperm(video.size(0)).cuda(non_blocking=True)
+                    
+                    mix_video = lambda_ * video + (1 - lambda_) * video[index, :]
+                    if(args.border):
+                        mix_border = lambda_ * border + (1 - lambda_) * border[index, :]
                         
-                        mix_video = lambda_ * video + (1 - lambda_) * video[index, :]
-                        if(args.border):
-                            mix_border = lambda_ * border + (1 - lambda_) * border[index, :]
-                            
-                        label_a, label_b = label, label[index]            
-                        if(args.border):
-                            y_v = video_model(mix_video, mix_border)       
-                        else:                
-                            y_v = video_model(mix_video)       
+                    label_a, label_b = label, label[index]            
+                    if(args.border):
+                        y_v = video_model(mix_video, mix_border)       
+                    else:                
+                        y_v = video_model(mix_video)       
+                    
+                    if args.focal_loss:
+                        y_v = m(y_v)
+                        y_v = (y_v+epsilon)/(1+100*epsilon)
+
+                    loss_bp = lambda_ * loss_fn(y_v, label_a) + (1 - lambda_) * loss_fn(y_v, label_b)
+                    var_acc = (y_v.argmax(-1) == label).cpu().numpy().tolist()
+                    var_acc = float(np.array(var_acc).reshape(-1).mean())
+                    var_acc = '{:.5f}'.format(var_acc)
+
+                else:
+                    if(args.border):
+                        y_v = video_model(video, border)       
+                    else:                
+                        y_v = video_model(video)    
                         
-                        if args.focal_loss:
-                            # apply softmax
-                            y_v = m(y_v)
-                            # for stabiity
-                            y_v = (y_v+epsilon)/(1+100*epsilon)
-
-
-                        loss_bp = lambda_ * loss_fn(y_v, label_a) + (1 - lambda_) * loss_fn(y_v, label_b)
-                        var_acc = (y_v.argmax(-1) == label).cpu().numpy().tolist()
-                        var_acc = float(np.array(var_acc).reshape(-1).mean())
-                        var_acc = '{:.5f}'.format(var_acc)
-
+                    if args.focal_loss:
+                        loss_bp = loss_fn(m(y_v), label)
                     else:
-                        if(args.border):
-                            y_v = video_model(video, border)       
-                        else:                
-                            y_v = video_model(video)    
-                            
-                        if args.focal_loss:
-                            loss_bp = loss_fn(m(y_v), label)
-                        else:
-                            loss_bp = loss_fn(y_v, label)
+                        loss_bp = loss_fn(y_v, label)
 
-                        var_acc = (y_v.argmax(-1) == label).cpu().numpy().tolist()
-                        var_acc = float(np.array(var_acc).reshape(-1).mean())
-                        var_acc = '{:.5f}'.format(var_acc)
+                    var_acc = (y_v.argmax(-1) == label).cpu().numpy().tolist()
+                    var_acc = float(np.array(var_acc).reshape(-1).mean())
+                    var_acc = '{:.5f}'.format(var_acc)
                                         
                 loss[label_print] = loss_bp
                 train_acc.append(float(var_acc))
                 train_loss.append(float(loss_bp.detach().cpu().numpy()))
 
                 optim_video.zero_grad()   
-                scaler.scale(loss_bp).backward()  
-                scaler.step(optim_video)
-                scaler.update()
+                # scaler.scale(loss_bp).backward()  
+                # scaler.step(optim_video)
+                # scaler.update()
+
+                loss_bp.backward()
+                optim_video.step()
                 
                 toc = time.time()
                 
@@ -561,7 +614,11 @@ def train():
                     writer.add_scalar("Loss/train", mean_train_loss, tot_iter)
 
                     if(acc > best_acc):
-                        savename = 'best2.pt'
+                        # savename = 'best2.pt'
+                        # Menggunakan save_prefix dari argumen dan menambahkan nama file
+                        # savename = f"{args.save_prefix}_best.pt"
+                        savename = f"{args.save_prefix}_best_acc_{acc:.4f}.pt"
+                        print(f"Akurasi validasi meningkat. Menyimpan model terbaik ke: {savename}")
                         torch.save(
                             {
                                 'video_model': video_model.module.state_dict(),

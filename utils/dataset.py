@@ -27,7 +27,8 @@ class LRWDataset(Dataset):
 
         for (i, label) in enumerate(self.labels):
             # default
-            files = glob.glob(os.path.join('lrw_roi_80_116_175_211_npy_gray_pkl_jpeg', label, phase, '*.pkl'))                            files = sorted(files)
+            files = glob.glob(os.path.join('lrw_roi_80_116_175_211_npy_gray_pkl_jpeg', label, phase, '*.pkl'))
+            files = sorted(files)
             self.list += [file for file in files]
             
         

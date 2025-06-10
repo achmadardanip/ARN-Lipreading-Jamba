@@ -1,0 +1,28 @@
+# Direktori environment Python (jangan pernah diunggah)
+venv/
+.venv/
+
+# File cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Direktori dataset (SANGAT PENTING untuk diabaikan)
+# Data ini akan diakses melalui NFS, jadi jangan diunggah.
+idev1/
+idev1_roi_80_116_175_211_npy_gray_p*/
+
+# File non-kode yang berukuran besar yang tidak dibutuhkan untuk training
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.mp4
+
+# Konfigurasi IDE
+.vscode/
+.idea/
+
+# Direktori Git
+.git/
