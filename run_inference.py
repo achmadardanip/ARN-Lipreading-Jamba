@@ -13,19 +13,33 @@ APP_NAME = "arn-lipreading-inference-app"
 stub = modal.App(APP_NAME)
 
 # --- Konfigurasi Network File System (NFS) ---
-NFS_NAME = "lipreading-dataset-nfs"
-volume = modal.NetworkFileSystem.from_name(NFS_NAME, create_if_missing=False)
+# NFS_NAME = "lipreading-dataset-nfs"
+# volume = modal.NetworkFileSystem.from_name(NFS_NAME, create_if_missing=False)
 
 # --- Path di dalam NFS Modal ---
 # --- Path ---
 # Path di dalam container tempat NFS di-mount
-MODAL_NFS_MOUNT_PATH = "/nfs"
+# MODAL_NFS_MOUNT_PATH = "/nfs"
 # Path remote di root NFS (untuk .create_dir dan .write_file)
-NFS_REMOTE_OUTPUT_DIR = "/outputs"
-NFS_REMOTE_INFERENCE_DIR = "/inference_data"
+# NFS_REMOTE_OUTPUT_DIR = "/outputs"
+# NFS_REMOTE_INFERENCE_DIR = "/inference_data"
 # Path lengkap di dalam container (untuk diakses oleh skrip)
-NFS_CONTAINER_OUTPUT_PATH = os.path.join(MODAL_NFS_MOUNT_PATH, NFS_REMOTE_OUTPUT_DIR.lstrip('/'))
-NFS_CONTAINER_INFERENCE_PATH = os.path.join(MODAL_NFS_MOUNT_PATH, NFS_REMOTE_INFERENCE_DIR.lstrip('/'))
+# NFS_CONTAINER_OUTPUT_PATH = os.path.join(MODAL_NFS_MOUNT_PATH, NFS_REMOTE_OUTPUT_DIR.lstrip('/'))
+# NFS_CONTAINER_INFERENCE_PATH = os.path.join(MODAL_NFS_MOUNT_PATH, NFS_REMOTE_INFERENCE_DIR.lstrip('/'))
+
+
+## BARU MENGGUNAKAN MODAL VOLUME
+
+# --- PERBAIKAN: Gunakan modal.Volume ---
+VOLUME_NAME = "arn-lipreading-volume"
+# from_name akan mencari Volume yang ada, atau membuatnya jika tidak ada
+volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
+
+# --- Path ---
+# Path di dalam container tempat Volume di-mount
+MODAL_VOLUME_MOUNT_PATH = "/data_vol"
+VOLUME_OUTPUT_PATH = os.path.join(MODAL_VOLUME_MOUNT_PATH, "outputs")
+VOLUME_INFERENCE_DATA_PATH = os.path.join(MODAL_VOLUME_MOUNT_PATH, "inference_data")
 
 # Gunakan image yang sama dengan versi 'dijamin berhasil' dari training
 # app_image = (
@@ -87,14 +101,20 @@ app_image = (
 @stub.function(
     image=app_image,
     gpu="H100",
-    network_file_systems={MODAL_NFS_MOUNT_PATH: volume},
+    # network_file_systems={MODAL_NFS_MOUNT_PATH: volume},
+    # MENGGUNAKAN MODAL VOLUME
+    volumes={MODAL_VOLUME_MOUNT_PATH: volume}
     timeout=300
 )
 def run_inference_on_modal(weights_name: str, video_name: str):
     if "/root" not in sys.path: sys.path.append("/root")
 
-    weights_path = os.path.join(NFS_CONTAINER_OUTPUT_PATH, weights_name)
-    video_path = os.path.join(NFS_CONTAINER_INFERENCE_PATH, video_name)
+    # weights_path = os.path.join(NFS_CONTAINER_OUTPUT_PATH, weights_name)
+    # video_path = os.path.join(NFS_CONTAINER_INFERENCE_PATH, video_name)
+
+    # baru menggunakan modal volume
+    weights_path = os.path.join(VOLUME_OUTPUT_PATH, weights_name)
+    video_path = os.path.join(VOLUME_INFERENCE_DATA_PATH, video_name)
     
     # Langsung gunakan path NFS karena cv2 seharusnya bisa membacanya setelah di-mount
     print(f"--- Menjalankan Inferensi ---")
@@ -113,7 +133,7 @@ def run_inference_on_modal(weights_name: str, video_name: str):
 @stub.local_entrypoint()
 def main(
     video_path: str = typer.Argument(..., help="Path ke file video lokal yang akan diunggah dan dites."),
-    weights: str = typer.Option(..., "--weights", help="Nama file model (.pt) di folder 'outputs' NFS."),
+    weights: str = typer.Option(..., "--weights", help="Nama file model (.pt) di folder 'outputs' Modal Volume."),
 ):
     video_path_obj = Path(video_path)
     if not video_path_obj.exists():
@@ -121,16 +141,21 @@ def main(
         return
 
     # Buat path remote yang benar dengan forward slashes '/'
-    remote_video_name = video_path_obj.name
-    remote_video_nfs_path = f"{NFS_REMOTE_INFERENCE_DIR}/{remote_video_name}"
+    # remote_video_name = video_path_obj.name
+    # remote_video_nfs_path = f"{NFS_REMOTE_INFERENCE_DIR}/{remote_video_name}"
     
-    print(f"🚀 Mengunggah '{remote_video_name}' ke NFS di '{remote_video_nfs_path}'...")
+    # print(f"🚀 Mengunggah '{remote_video_name}' ke NFS di '{remote_video_nfs_path}'...")
+
+    # BARU MENGGUNAKAN MODAL VOLUME
+    remote_video_path = f"/inference_data/{video_path_obj.name}"
+    
+    print(f"🚀 Mengunggah '{video_path_obj.name}' ke Volume di '{remote_video_path}'...")
     
     # Tulis file; direktori akan dibuat secara otomatis oleh Modal
-    with open(video_path_obj, "rb") as f:
-        volume.write_file(remote_video_nfs_path, f)
+    # PERBAIKAN: Gunakan volume.put_file untuk mengunggah
+    volume.put_file(video_path_obj, remote_video_path)
         
     print("✅ Video berhasil diunggah.")
 
     print(f"\n🧠 Memanggil fungsi inferensi di Modal...")
-    run_inference_on_modal.remote(weights, remote_video_name)
+    run_inference_on_modal.remote(weights, video_path_obj.name

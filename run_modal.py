@@ -11,16 +11,26 @@ APP_NAME = "arn-lipreading-jamba-app"
 stub = modal.App(APP_NAME)
 
 # --- Konfigurasi Network File System (NFS) ---
-NFS_NAME = "lipreading-dataset-nfs"
-volume = modal.NetworkFileSystem.from_name(NFS_NAME, create_if_missing=True)
+# NFS_NAME = "lipreading-dataset-nfs"
+# volume = modal.NetworkFileSystem.from_name(NFS_NAME, create_if_missing=True)
 
 # --- Path di dalam NFS Modal ---
 # Ini akan menjadi mount point untuk NFS di dalam container
-MODAL_NFS_MOUNT_PATH = "/nfs"
+# MODAL_NFS_MOUNT_PATH = "/nfs"
 
-NFS_DATASET_PATH = os.path.join(MODAL_NFS_MOUNT_PATH, "data/idev1_roi_80_116_175_211_npy_gray_pkl_jpeg")
-NFS_OUTPUT_PATH = os.path.join(MODAL_NFS_MOUNT_PATH, "outputs")
+# NFS_DATASET_PATH = os.path.join(MODAL_NFS_MOUNT_PATH, "data/idev1_roi_80_116_175_211_npy_gray_pkl_jpeg")
+# NFS_OUTPUT_PATH = os.path.join(MODAL_NFS_MOUNT_PATH, "outputs")
 
+# baru menggunakan modal volume
+
+VOLUME_NAME = "arn-lipreading-volume"
+# Volume.from_name akan mencari volume yang ada, atau membuatnya jika tidak ada
+volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
+
+# --- Path ---
+MODAL_VOLUME_MOUNT_PATH = "/data_vol" # Ganti nama mount point agar lebih jelas
+VOLUME_DATASET_PATH = os.path.join(MODAL_VOLUME_MOUNT_PATH, "data/idev1_roi_80_116_175_211_npy_gray_pkl_jpeg")
+VOLUME_OUTPUT_PATH = os.path.join(MODAL_VOLUME_MOUNT_PATH, "outputs")
 
 # --- Definisi Image Docker untuk Environment ---
 # Menggunakan API modern .add_local_dir() yang secara otomatis menghormati .modalignore
@@ -85,7 +95,9 @@ app_image = (
 @stub.function(
     image=app_image,
     gpu="H100",
-    network_file_systems={MODAL_NFS_MOUNT_PATH: volume}, # Mount NFS ke /nfs
+    # network_file_systems={MODAL_NFS_MOUNT_PATH: volume}, # Mount NFS ke /nfs
+    # PERBAIKAN: Gunakan 'volumes' bukan 'network_file_systems'
+    volumes={MODAL_VOLUME_MOUNT_PATH: volume},
     timeout=3600 * 6,  # Timeout 6 jam
     secrets=[modal.Secret.from_dict({"PYTHONUNBUFFERED": "1"})], # Untuk log real-time
 )
@@ -106,8 +118,10 @@ def train_model():
 
     # Membuat direktori output di NFS
     # Nama model akan digabungkan dengan path ini oleh skrip main_visual.py
-    os.makedirs(NFS_OUTPUT_PATH, exist_ok=True)
-    print(f"Direktori output dipastikan ada di NFS: {NFS_OUTPUT_PATH}")
+    # os.makedirs(NFS_OUTPUT_PATH, exist_ok=True)
+    #BARU PAKE MODAL VOLUME
+    os.makedirs(VOLUME_OUTPUT_PATH, exist_ok=True)
+    print(f"Direktori output dipastikan ada di Volume: {VOLUME_OUTPUT_PATH}")
 
     # Definisikan perintah untuk menjalankan main_visual.py
     command = [
@@ -115,13 +129,13 @@ def train_model():
         "--gpus", "0",
         "--lr", "1e-4",
         "--batch_size", "32",
-        "--n_class", "8",
+        "--n_class", "100",
         "--num_workers", "4",
-        "--max_epoch", "100",
+        "--max_epoch", "1000",
         "--test", "false",
-        "--save_prefix", os.path.join(NFS_OUTPUT_PATH, "jamba_lipreading_model"),
+        "--save_prefix", os.path.join(VOLUME_OUTPUT_PATH, "jamba_lipreading_model"),
         "--dataset", "idlrw",
-        "--data_path", NFS_DATASET_PATH,
+        "--data_path", VOLUME_DATASET_PATH,
         "--border", "true",
         "--mixup", "true",
         "--label_smooth", "true",
@@ -159,7 +173,9 @@ def train_model():
 @stub.function(
     image=app_image,
     gpu="H100", # Bisa diganti ke GPU lebih kecil seperti T4 untuk menghemat biaya
-    network_file_systems={MODAL_NFS_MOUNT_PATH: volume},
+    # network_file_systems={MODAL_NFS_MOUNT_PATH: volume},
+        # PERBAIKAN: Gunakan 'volumes'
+    volumes={MODAL_VOLUME_MOUNT_PATH: volume},
     timeout=600, # Testing biasanya cepat
 )
 def test_model(weights_name: str):
@@ -168,7 +184,9 @@ def test_model(weights_name: str):
     """
     if "/root" not in sys.path: sys.path.append("/root")
     
-    weights_path = os.path.join(NFS_OUTPUT_PATH, weights_name)
+    # weights_path = os.path.join(NFS_OUTPUT_PATH, weights_name)
+    # BARU PAKE MODAL VOLUME
+    weights_path = os.path.join(VOLUME_OUTPUT_PATH, weights_name)
     print(f"--- Memulai Evaluasi Model di Modal ---")
     print(f"Menggunakan bobot model dari: {weights_path}")
 
@@ -178,9 +196,9 @@ def test_model(weights_name: str):
         "--dataset", "idlrw",
         "--test", "true",
         "--weights", weights_path, # Path ke model di NFS
-        "--data_path", NFS_DATASET_PATH,
+        "--data_path", VOLUME_DATASET_PATH,
         "--batch_size", "32",
-        "--n_class", "8",
+        "--n_class", "100",
         "--num_workers", "4",
         "--border", "true",
         "--se", "true",
