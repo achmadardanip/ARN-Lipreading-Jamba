@@ -98,30 +98,29 @@ app_image = (
 )
 
 
+# --- PERBAIKAN: Fungsi menerima konten video (bytes), bukan nama file ---
 @stub.function(
     image=app_image,
     gpu="H100",
-    # network_file_systems={MODAL_NFS_MOUNT_PATH: volume},
-    # MENGGUNAKAN MODAL VOLUME
-    volumes={MODAL_VOLUME_MOUNT_PATH: volume}
+    volumes={MODAL_VOLUME_MOUNT_PATH: volume},
     timeout=300
 )
-def run_inference_on_modal(weights_name: str, video_name: str):
+def run_inference_on_modal(weights_name: str, video_content: bytes):
     if "/root" not in sys.path: sys.path.append("/root")
 
-    # weights_path = os.path.join(NFS_CONTAINER_OUTPUT_PATH, weights_name)
-    # video_path = os.path.join(NFS_CONTAINER_INFERENCE_PATH, video_name)
+    # Simpan konten video yang diterima ke file sementara di dalam container
+    local_video_path = "/tmp/inference_video.mp4"
+    with open(local_video_path, "wb") as f:
+        f.write(video_content)
 
-    # baru menggunakan modal volume
     weights_path = os.path.join(VOLUME_OUTPUT_PATH, weights_name)
-    video_path = os.path.join(VOLUME_INFERENCE_DATA_PATH, video_name)
     
-    # Langsung gunakan path NFS karena cv2 seharusnya bisa membacanya setelah di-mount
     print(f"--- Menjalankan Inferensi ---")
     print(f"Model: {weights_path}")
-    print(f"Video: {video_path}")
+    print(f"Video (disimpan sementara di): {local_video_path}")
     
-    command = ["python", "inference.py", "--weights", weights_path, "--video", video_path]
+    # Jalankan inference.py menggunakan path lokal sementara
+    command = ["python", "inference.py", "--weights", weights_path, "--video", local_video_path]
     
     try:
         subprocess.run(command, check=True)
@@ -129,33 +128,22 @@ def run_inference_on_modal(weights_name: str, video_name: str):
         print(f"!!! Inferensi Gagal (exit code: {e.returncode}) !!!")
         raise
 
-# --- PERBAIKAN: Entrypoint yang Disederhanakan ---
+# --- PERBAIKAN: Entrypoint membaca file lokal dan mengirim kontennya ---
 @stub.local_entrypoint()
 def main(
-    video_path: str = typer.Argument(..., help="Path ke file video lokal yang akan diunggah dan dites."),
-    weights: str = typer.Option(..., "--weights", help="Nama file model (.pt) di folder 'outputs' Modal Volume."),
+    video_path: str = typer.Argument(..., help="Path ke file video LOKAL."),
+    weights: str = typer.Option(..., "--weights", help="Nama file model (.pt) di folder 'outputs' Volume."),
 ):
     video_path_obj = Path(video_path)
     if not video_path_obj.exists():
         print(f"❌ Error: File video tidak ditemukan di '{video_path_obj}'")
         return
 
-    # Buat path remote yang benar dengan forward slashes '/'
-    # remote_video_name = video_path_obj.name
-    # remote_video_nfs_path = f"{NFS_REMOTE_INFERENCE_DIR}/{remote_video_name}"
+    # Baca konten file video sebagai data biner (bytes)
+    with open(video_path_obj, "rb") as f:
+        video_bytes = f.read()
     
-    # print(f"🚀 Mengunggah '{remote_video_name}' ke NFS di '{remote_video_nfs_path}'...")
-
-    # BARU MENGGUNAKAN MODAL VOLUME
-    remote_video_path = f"/inference_data/{video_path_obj.name}"
+    print(f"🚀 Mengirim konten video '{video_path_obj.name}' dan menjalankan inferensi di Modal...")
     
-    print(f"🚀 Mengunggah '{video_path_obj.name}' ke Volume di '{remote_video_path}'...")
-    
-    # Tulis file; direktori akan dibuat secara otomatis oleh Modal
-    # PERBAIKAN: Gunakan volume.put_file untuk mengunggah
-    volume.put_file(video_path_obj, remote_video_path)
-        
-    print("✅ Video berhasil diunggah.")
-
-    print(f"\n🧠 Memanggil fungsi inferensi di Modal...")
-    run_inference_on_modal.remote(weights, video_path_obj.name
+    # Panggil fungsi remote dengan mengirim konten video
+    run_inference_on_modal.remote(weights, video_bytes)
