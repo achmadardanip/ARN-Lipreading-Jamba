@@ -94,11 +94,11 @@ app_image = (
 # --- Fungsi Training yang akan dijalankan di Modal ---
 @stub.function(
     image=app_image,
-    gpu="H100",
+    gpu="H200",
     # network_file_systems={MODAL_NFS_MOUNT_PATH: volume}, # Mount NFS ke /nfs
     # PERBAIKAN: Gunakan 'volumes' bukan 'network_file_systems'
     volumes={MODAL_VOLUME_MOUNT_PATH: volume},
-    timeout=3600 * 6,  # Timeout 6 jam
+    timeout=3600 * 24,  # Timeout 6 jam
     secrets=[modal.Secret.from_dict({"PYTHONUNBUFFERED": "1"})], # Untuk log real-time
 )
 def train_model():
@@ -131,7 +131,7 @@ def train_model():
         "--batch_size", "32",
         "--n_class", "100",
         "--num_workers", "4",
-        "--max_epoch", "1000",
+        "--max_epoch", "280",
         "--test", "false",
         "--save_prefix", os.path.join(VOLUME_OUTPUT_PATH, "jamba_lipreading_model"),
         "--dataset", "idlrw",
@@ -172,7 +172,7 @@ def train_model():
 # --- FUNGSI BARU: Untuk Testing ---
 @stub.function(
     image=app_image,
-    gpu="H100", # Bisa diganti ke GPU lebih kecil seperti T4 untuk menghemat biaya
+    gpu="H200", # Bisa diganti ke GPU lebih kecil seperti T4 untuk menghemat biaya
     # network_file_systems={MODAL_NFS_MOUNT_PATH: volume},
         # PERBAIKAN: Gunakan 'volumes'
     volumes={MODAL_VOLUME_MOUNT_PATH: volume},

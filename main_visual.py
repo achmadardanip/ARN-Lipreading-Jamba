@@ -466,7 +466,7 @@ def train():
     scaler = torch.cuda.amp.GradScaler()          
     mode_list = [None]
     print(len(mode_list))
-    patience = 10
+    patience = 30
     temporary_patience = 0
     chk_epoch = 0
 
