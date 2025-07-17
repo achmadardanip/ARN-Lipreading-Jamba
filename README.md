@@ -61,7 +61,7 @@ Proyek ini juga mencakup **LIRA-Gen**, sebuah *tool* untuk membangun dataset *li
     ```
 
 4.  **Siapkan Dataset IDLRW yang sudah berbentuk .pkl**:
-    Unduh dataset IDLRW (atau buat dengan LIRA-Gen) dan letakkan di dalam direktori dengan struktur berikut:
+    Unduh dataset IDLRW dalam format Pickle pada link berikut https://drive.google.com/file/d/1A7T4u-la6Ey2gggY6ErSeVnsvi1PdwnT/view?usp=sharing (atau buat dengan LIRA-Gen) dan letakkan di dalam direktori dengan struktur berikut:
     ```
     /data/idev1_roi_80_116_175_211_npy_gray_pkl_jpeg/
     ├── ada/
