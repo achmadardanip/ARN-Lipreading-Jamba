@@ -79,7 +79,7 @@ Proyek ini juga mencakup **LIRA-Gen**, sebuah *tool* untuk membangun dataset *li
 
 ## Cara Penggunaan (Training & Inferensi di Modal.com)
 
-Metode ini direkomendasikan untuk memanfaatkan GPU H100.
+Metode ini direkomendasikan untuk memanfaatkan GPU H200 dengan Penggunaan Cloud GPU dari modal.com jika belum memiliki akun modal.com silakan membuat akun terlebih dahulu.
 
 1.  **Penyiapan Modal**:
     * Install Modal: `pip install modal`
