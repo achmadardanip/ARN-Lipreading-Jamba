@@ -11,7 +11,7 @@ Proyek ini juga mencakup **LIRA-Gen**, sebuah *tool* untuk membangun dataset *li
 
 - **Arsitektur Hybrid Inovatif**: Menggabungkan kekuatan ResNet untuk ekstraksi fitur visual, Bi-GRU untuk pemodelan sekuensial, dan Jamba untuk menangkap dependensi temporal yang kompleks.
 - **Dataset Bahasa Indonesia**: Menyediakan dataset `IDLRW` yang merupakan salah satu dataset *lip-reading* pertama untuk Bahasa Indonesia.
-- **Eksekusi di Cloud**: Dilengkapi dengan skrip untuk menjalankan *training* dan inferensi secara efisien di [Modal.com](https://modal.com) menggunakan GPU H100.
+- **Eksekusi di Cloud**: Dilengkapi dengan skrip untuk menjalankan *training* dan inferensi secara efisien di [Modal.com](https://modal.com) menggunakan GPU H200.
 - **Modular**: Kode dipisahkan dengan jelas antara definisi model, utilitas dataset, dan skrip eksekusi.
 
 ## Struktur Repositori
